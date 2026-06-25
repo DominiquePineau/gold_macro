@@ -28,8 +28,32 @@ def _key(alert: Alert) -> str:
     return f"{alert.kind}:{_direction(alert.message)}"
 
 
+_SEVERITY_EMOJI = {"CRITICAL": "🔴", "WARNING": "🟠", "INFO": "🔵"}
+
+# Conseil d'action par type d'alerte (cf. RUNBOOK §5). Outil de CONTEXTE.
+_HINTS = {
+    "ALIGNMENT": "Conviction max : structurel et tactique convergent — le signal le plus fiable. Croise avec ta lecture de prix.",
+    "BIAS_FLIP": "Bascule directionnelle. À confirmer avec ta lecture de prix avant d'agir.",
+    "DIVERGENCE": "Épuisement possible de la tendance. Surveiller un retournement, ne pas trader seul.",
+    "SENTIMENT_EXTREME": "Positionnement saturé : risque de retournement à contre-courant de la foule.",
+    "SENTIMENT_DIVERGENCE": "Sentiment et prix divergent : signal contrarian d'épuisement.",
+    "EVENT_PROXIMITY": "Événement macro imminent — prudence sur les nouvelles positions.",
+}
+
+
 def _fmt(alert: Alert) -> str:
-    return f"[{alert.severity}] {alert.kind} — {alert.message}"
+    """Message d'alerte CLAIR et DÉTAILLÉ (sévérité, type, contexte, conseil, heure)."""
+    emoji = _SEVERITY_EMOJI.get(alert.severity, "•")
+    ts = alert.timestamp.strftime("%Y-%m-%d %H:%M UTC")
+    lines = [
+        f"{emoji} {alert.severity} · {alert.kind}",
+        alert.message,
+    ]
+    hint = _HINTS.get(alert.kind)
+    if hint:
+        lines.append(f"👉 {hint}")
+    lines.append(f"🕒 {ts} · outil de contexte (n'exécute aucun ordre)")
+    return "\n".join(lines)
 
 
 class AlertDispatcher:

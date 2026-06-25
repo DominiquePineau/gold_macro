@@ -85,6 +85,17 @@ async def test_notify_direct():
     assert sink.messages == ["💸 palier 1€"]
 
 
+async def test_alert_format_is_detailed():
+    sink = LogSink()
+    d = AlertDispatcher(sink)
+    await d.dispatch([_alert("ALIGNMENT", "CRITICAL", "ALIGNEMENT HAUSSIER : ...")])
+    msg = sink.messages[0]
+    assert "🔴" in msg and "CRITICAL" in msg and "ALIGNMENT" in msg  # sévérité + type
+    assert "👉" in msg          # conseil d'action
+    assert "UTC" in msg         # horodatage
+    assert "n'exécute aucun ordre" in msg  # rappel : outil de contexte
+
+
 async def test_empty_digest_noop():
     sink = LogSink()
     d = AlertDispatcher(sink)
