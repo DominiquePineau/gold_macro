@@ -18,6 +18,7 @@ import asyncio
 import os
 import signal
 
+from app import config as cfg_mod
 from app.alerting.dispatcher import AlertDispatcher
 from app.alerting.sinks import build_sink
 from app.core.orchestrator import GoldMacroOrchestrator
@@ -38,6 +39,11 @@ def _f(name: str, default: float) -> float:
 
 
 async def main() -> None:
+    # fail-fast : FRED requise pour le socle macro live (cf. .env.example)
+    cfg = cfg_mod.load()
+    cfg_mod.validate(cfg, required=("FRED_API_KEY",))
+    print("Config:", cfg_mod.summary(cfg), flush=True)
+
     provider = RealProvider(
         price_feed=TradeDBPriceFeed(),
         positioning_feed=ProxyPositioningFeed(),
