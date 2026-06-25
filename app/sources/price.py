@@ -14,12 +14,14 @@ NB : IG est le broker de l'utilisateur. OANDA est une alternative possible
 from __future__ import annotations
 
 import os
+import sqlite3
 from datetime import datetime, timezone
 from typing import Optional
 
 import httpx
 
 DEFAULT_GOLD_EPIC = "CS.D.CFEGOLD.CEF.IP"  # Spot Gold ($1) côté IG
+DEFAULT_TRADE_DB = "/home/ubuntu/trade/trading.db"
 
 
 class StaticPriceFeed:
@@ -32,8 +34,65 @@ class StaticPriceFeed:
         return self.value
 
 
+class TradeDBPriceFeed:
+    """Prix XAU réutilisant le flux du système `trade` (table candle_data SQLite).
+
+    RECOMMANDÉ : ne crée AUCUNE session broker (pas de conflit avec le bot de
+    trading qui tient déjà les sessions IG). Lit le dernier `close` de la bougie
+    la plus récente pour l'instrument/timeframe demandés. Garde-fou de fraîcheur :
+    si la dernière bougie est trop vieille (streamer arrêté), renvoie None.
+    """
+
+    def __init__(self, *, db_path: Optional[str] = None, instrument: str = "XAUUSD",
+                 timeframe: str = "1m", max_staleness_minutes: float = 120.0):
+        self.db_path = db_path or os.environ.get("TRADE_DB_PATH") or DEFAULT_TRADE_DB
+        self.instrument = instrument
+        self.timeframe = timeframe
+        self.max_staleness = max_staleness_minutes
+
+    def _read_latest(self) -> Optional[tuple[str, float]]:
+        if not os.path.exists(self.db_path):
+            return None
+        con = sqlite3.connect(f"file:{self.db_path}?mode=ro", uri=True, timeout=5)
+        try:
+            cur = con.execute(
+                "SELECT timestamp, close FROM candle_data "
+                "WHERE instrument=? AND timeframe=? ORDER BY timestamp DESC LIMIT 1",
+                (self.instrument, self.timeframe),
+            )
+            row = cur.fetchone()
+        finally:
+            con.close()
+        return (row[0], float(row[1])) if row else None
+
+    async def price(self) -> Optional[float]:
+        """Dernier close XAU du flux trade. None si absent/périmé (mode dégradé)."""
+        try:
+            latest = self._read_latest()
+            if latest is None:
+                return None
+            ts_raw, close = latest
+            if self.max_staleness is not None:
+                ts = datetime.fromisoformat(str(ts_raw).split(".")[0].replace("Z", ""))
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=timezone.utc)
+                age_min = (datetime.now(timezone.utc) - ts).total_seconds() / 60.0
+                if age_min > self.max_staleness:
+                    return None  # trop vieux -> on ne ment pas sur le prix
+            return close
+        except Exception:
+            return None
+
+    async def __call__(self) -> Optional[float]:
+        return await self.price()
+
+
 class IGPriceFeed:
-    """Prix XAU mid via IG (READ-ONLY). Session IG mise en cache."""
+    """Prix XAU mid via IG (READ-ONLY). Session IG mise en cache.
+
+    ⚠️ Crée une session IG : RISQUE DE CONFLIT avec le bot de trading (WAF/rate-limit).
+    Préférer TradeDBPriceFeed en production. Conservé comme alternative.
+    """
 
     def __init__(self, *, api_key: Optional[str] = None, username: Optional[str] = None,
                  password: Optional[str] = None, api_url: Optional[str] = None,

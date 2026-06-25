@@ -1,9 +1,51 @@
 """Tests du flux prix (app/sources/price.py) — IG mocké, read-only, mode dégradé."""
 from __future__ import annotations
 
+import sqlite3
+from datetime import datetime, timedelta, timezone
+
 import pytest
 
-from app.sources.price import IGPriceFeed, StaticPriceFeed
+from app.sources.price import IGPriceFeed, StaticPriceFeed, TradeDBPriceFeed
+
+
+def _make_trade_db(tmp_path, *, age_minutes=1.0, instrument="XAUUSD", tf="1m", close=4035.95):
+    db = tmp_path / "trading.db"
+    con = sqlite3.connect(db)
+    con.execute("CREATE TABLE candle_data (timestamp TEXT, instrument TEXT, "
+                "timeframe TEXT, open REAL, high REAL, low REAL, close REAL)")
+    ts = (datetime.now(timezone.utc) - timedelta(minutes=age_minutes)).strftime("%Y-%m-%d %H:%M:%S")
+    older = (datetime.now(timezone.utc) - timedelta(minutes=age_minutes + 5)).strftime("%Y-%m-%d %H:%M:%S")
+    con.execute("INSERT INTO candle_data VALUES (?,?,?,?,?,?,?)",
+                (older, instrument, tf, 1, 1, 1, close - 10))
+    con.execute("INSERT INTO candle_data VALUES (?,?,?,?,?,?,?)",
+                (ts, instrument, tf, 1, 1, 1, close))
+    con.commit()
+    con.close()
+    return str(db)
+
+
+async def test_trade_db_feed_latest_close(tmp_path):
+    db = _make_trade_db(tmp_path, close=4035.95)
+    feed = TradeDBPriceFeed(db_path=db)
+    assert await feed.price() == pytest.approx(4035.95)  # la PLUS récente
+
+
+async def test_trade_db_feed_stale_returns_none(tmp_path):
+    db = _make_trade_db(tmp_path, age_minutes=500)  # trop vieux
+    feed = TradeDBPriceFeed(db_path=db, max_staleness_minutes=120)
+    assert await feed.price() is None
+
+
+async def test_trade_db_feed_missing_db_returns_none(tmp_path):
+    feed = TradeDBPriceFeed(db_path=str(tmp_path / "nope.db"))
+    assert await feed.price() is None
+
+
+async def test_trade_db_feed_unknown_instrument_none(tmp_path):
+    db = _make_trade_db(tmp_path, instrument="XAUUSD")
+    feed = TradeDBPriceFeed(db_path=db, instrument="EURUSD")
+    assert await feed.price() is None
 
 
 async def test_static_feed():
