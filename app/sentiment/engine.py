@@ -26,9 +26,9 @@ W_TEXTUAL = 0.35
 
 
 class SentimentEngine:
-    def __init__(self, anthropic_key: Optional[str] = None):
+    def __init__(self, anthropic_key: Optional[str] = None, cost_guard=None):
         self.positioning = PositioningAnalyzer()
-        self.textual = TextualAnalyzer(api_key=anthropic_key)
+        self.textual = TextualAnalyzer(api_key=anthropic_key, cost_guard=cost_guard)
 
     async def evaluate(
         self,

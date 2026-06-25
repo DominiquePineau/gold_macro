@@ -14,11 +14,12 @@ from app.sources.base import DataProvider, MacroInputs
 class GoldMacroOrchestrator:
     """Pilote un cycle complet d'évaluation."""
 
-    def __init__(self, provider: DataProvider, anthropic_key: str | None = None):
+    def __init__(self, provider: DataProvider, anthropic_key: str | None = None,
+                 cost_guard=None):
         self.provider = provider
         self.engine = ScoringEngine()
         self.detector = RegimeDetector()
-        self.sentiment = SentimentEngine(anthropic_key=anthropic_key)
+        self.sentiment = SentimentEngine(anthropic_key=anthropic_key, cost_guard=cost_guard)
         self.last_snapshot: GoldSnapshot | None = None
 
     async def _evaluate(self, inputs: MacroInputs) -> GoldSnapshot:
