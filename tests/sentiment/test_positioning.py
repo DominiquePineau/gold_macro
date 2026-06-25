@@ -50,6 +50,34 @@ def test_score_clipped_to_range():
     assert -100.0 <= score <= 100.0
 
 
+def test_put_call_extreme_fear_is_bullish():
+    """Put/call élevé (peur) aux extrêmes -> contrarian haussier (score > 0)."""
+    pa = PositioningAnalyzer()
+    for v in [1.0, 1.1, 0.9, 1.0, 1.1, 0.9]:
+        pa.analyze(PositioningInputs(put_call_gld=v))
+    score, extreme = pa.analyze(PositioningInputs(put_call_gld=5.0))  # peur extrême
+    assert score > 0
+    assert extreme is True
+
+
+def test_fear_greed_extreme_greed_is_bearish():
+    """Fear&Greed extrême (greed) -> contrarian baissier (score < 0)."""
+    pa = PositioningAnalyzer()
+    for v in [50, 52, 48, 50, 52, 48]:
+        pa.analyze(PositioningInputs(fear_greed=v))
+    score, extreme = pa.analyze(PositioningInputs(fear_greed=99.0))
+    assert score < 0
+    assert extreme is True
+
+
+def test_combined_inputs_averaged():
+    """Plusieurs inputs -> score = moyenne des sous-signaux (borné)."""
+    pa = PositioningAnalyzer()
+    score, _ = pa.analyze(PositioningInputs(retail_long_pct=50.0,
+                                            put_call_gld=1.0, fear_greed=50.0))
+    assert -100.0 <= score <= 100.0
+
+
 def test_contrarian_curve_monotonic_in_extreme():
     """Plus l'extrême est marqué, plus la magnitude contrarian est forte."""
     c1 = PositioningAnalyzer._contrarian_curve(EXTREME_Z + 0.1)

@@ -13,9 +13,10 @@ Ce connecteur calcule les variations/momentum à partir des niveaux bruts.
 """
 from __future__ import annotations
 
+import inspect
 import os
-from datetime import datetime, timedelta
-from typing import Optional
+from datetime import datetime, timedelta, timezone
+from typing import Awaitable, Callable, Optional, Union
 
 import httpx
 
@@ -24,22 +25,53 @@ from app.sources.base import DataProvider, MacroInputs
 
 FRED_BASE = "https://api.stlouisfed.org/fred/series/observations"
 
+# Un "feed" est un callable sans argument renvoyant une valeur (ou un awaitable
+# de valeur). Permet d'injecter prix XAU / COT / calendrier sans violer l'ABC
+# `DataProvider.fetch(self) -> MacroInputs`.
+Feed = Callable[[], Union[object, Awaitable[object]]]
+
 
 class FredProvider(DataProvider):
-    """Provider basé sur FRED + un flux prix XAU externe injecté."""
+    """Provider FRED conforme à l'ABC : `fetch(self)` sans argument.
 
-    def __init__(self, api_key: Optional[str] = None):
+    Les dépendances externes (prix XAU live, positionnement COT, calendrier macro)
+    sont **injectées au __init__** sous forme de feeds (callables sync ou async),
+    et non passées à `fetch()`. Cela rend `FredProvider` substituable à
+    `MockProvider` sans changer l'orchestrateur (cf. IMPLEMENTATION_PLAN §1.6).
+    """
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        *,
+        price_feed: Optional[Feed] = None,   # () -> prix XAU courant (float|None)
+        cot_feed: Optional[Feed] = None,     # () -> net specs CFTC (float)
+        calendar: Optional[Feed] = None,     # () -> heures avant prochain event (float|None)
+    ):
         self.api_key = api_key or os.environ.get("FRED_API_KEY")
         if not self.api_key:
             raise ValueError("FRED_API_KEY manquante (env ou argument).")
+        self._price_feed = price_feed
+        self._cot_feed = cot_feed
+        self._calendar = calendar
         # historiques pour calculer momentum/pentes
         self._tips = RollingWindow(252)
         self._nominal = RollingWindow(252)
         self._dxy = RollingWindow(252)
         self._xau = RollingWindow(252)
 
+    @staticmethod
+    async def _resolve(feed: Optional[Feed], default: object) -> object:
+        """Appelle un feed (sync ou async) ; renvoie `default` si absent."""
+        if feed is None:
+            return default
+        result = feed()
+        if inspect.isawaitable(result):
+            result = await result
+        return result if result is not None else default
+
     async def _series(self, series_id: str, days: int = 30) -> list[float]:
-        start = (datetime.utcnow() - timedelta(days=days)).strftime("%Y-%m-%d")
+        start = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
         params = {
             "series_id": series_id,
             "api_key": self.api_key,
@@ -61,9 +93,12 @@ class FredProvider(DataProvider):
                     pass
         return out
 
-    async def fetch(self, xau_price: Optional[float] = None,
-                    cot_net_specs: float = 0.0,
-                    next_event_hours: Optional[float] = None) -> MacroInputs:
+    async def fetch(self) -> MacroInputs:
+        # Dépendances externes résolues via les feeds injectés (conforme à l'ABC).
+        xau_price: Optional[float] = await self._resolve(self._price_feed, None)
+        cot_net_specs: float = float(await self._resolve(self._cot_feed, 0.0))
+        next_event_hours: Optional[float] = await self._resolve(self._calendar, None)
+
         tips = await self._series("DFII10")
         nominal = await self._series("DGS10")
         dxy = await self._series("DTWEXBGS")
@@ -85,7 +120,7 @@ class FredProvider(DataProvider):
         price_mom = slope(self._xau.values(), lookback=10) if len(self._xau) >= 3 else 0.0
 
         return MacroInputs(
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
             real_rates_10y=tips_chg,
             dxy_daily=dxy_daily,
             cot_net_specs=cot_net_specs,
