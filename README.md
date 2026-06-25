@@ -63,13 +63,37 @@ uvicorn app.api.main:app --reload
 
 Endpoints : `GET /health`, `POST /evaluate`, `GET /snapshot`, `GET /score`.
 
-## Brancher des données réelles
+## Données réelles (Phase 2 — implémenté)
 
-1. **FRED** (gratuit) pour taux réels / rendements / dollar :
-   `export FRED_API_KEY=...` puis utiliser `FredProvider` dans `app/api/main.py`.
-2. **Prix XAU** : injecter depuis ton flux OANDA/IG existant.
-3. **COT** : parser le rapport CFTC hebdo (Disaggregated, Gold).
-4. **Webhook alertes** : `export ALERT_WEBHOOK_URL=...` (Telegram/Discord/pipeline).
+`RealProvider` (`app/sources/real.py`) compose les sources live en un `MacroInputs` :
+
+```python
+from app.sources.real import RealProvider
+from app.sources.price import TradeDBPriceFeed
+from app.sources.positioning import ProxyPositioningFeed
+from app.sources.news import NewsProvider
+
+provider = RealProvider(
+    price_feed=TradeDBPriceFeed(),          # prix XAU via le flux du système trade
+    positioning_feed=ProxyPositioningFeed(),  # proxy Fear&Greed (dérivé du prix)
+    news_feed=NewsProvider(),               # RSS gratuit (Google News + ForexLive)
+)
+```
+
+| Source | Connecteur | Détail |
+|--------|-----------|--------|
+| Taux réels / nominal / dollar | `FredProvider` (FRED) | `FRED_API_KEY` ; retries + cache + mode dégradé |
+| COT net specs | `CotProvider` (CFTC) | gratuit, cache hebdo, mode dégradé |
+| Prix XAU | `TradeDBPriceFeed` | flux du système `trade` (candle_data), **aucune session broker** |
+| Sentiment | `ProxyPositioningFeed` | proxy Fear&Greed maison (momentum/vol) |
+| News (NLP) | `NewsProvider` | RSS gratuit → Claude Haiku si `ANTHROPIC_API_KEY`, sinon lexique |
+
+Chaque source a un **mode dégradé** (renvoie `None`/vide sans casser le cycle) et
+des **tests** (fixtures). Le `MockProvider` reste fonctionnel (démo + tests).
+
+Démo live : `python demo_live.py` (nécessite `FRED_API_KEY`).
+Alerte : `IGPriceFeed` existe aussi mais crée une session IG (risque de conflit
+avec un bot de trading) — préférer `TradeDBPriceFeed`.
 
 ## Calibration
 
