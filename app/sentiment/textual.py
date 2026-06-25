@@ -20,6 +20,7 @@ from typing import Optional
 
 import httpx
 
+from app.sentiment.cost import CostGuard
 from app.sentiment.models import NewsItem
 
 ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
@@ -55,9 +56,11 @@ Garde le même ordre que les headlines fournies."""
 class TextualAnalyzer:
     """Note des headlines via Claude, avec repli lexique."""
 
-    def __init__(self, api_key: Optional[str] = None, model: str = "claude-haiku-4-5-20251001"):
+    def __init__(self, api_key: Optional[str] = None, model: str = "claude-haiku-4-5-20251001",
+                 cost_guard: Optional[CostGuard] = None):
         self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
         self.model = model
+        self.cost_guard = cost_guard
 
     # --- moteur principal : Claude ---
     async def _analyze_claude(self, items: list[NewsItem]) -> list[NewsItem]:
@@ -79,6 +82,12 @@ class TextualAnalyzer:
             r = await client.post(ANTHROPIC_URL, headers=headers, json=payload)
             r.raise_for_status()
             data = r.json()
+
+        # Enregistre la consommation pour le garde-fou de coût (champ usage).
+        if self.cost_guard is not None:
+            usage = data.get("usage", {}) or {}
+            self.cost_guard.record(usage.get("input_tokens", 0) or 0,
+                                   usage.get("output_tokens", 0) or 0)
 
         text = "".join(b.get("text", "") for b in data.get("content", [])
                        if b.get("type") == "text")
@@ -109,7 +118,9 @@ class TextualAnalyzer:
     async def analyze(self, items: list[NewsItem]) -> list[NewsItem]:
         if not items:
             return []
-        if self.api_key:
+        # Claude seulement si clé présente ET budget non épuisé (garde-fou coût).
+        can_call_claude = self.api_key and (self.cost_guard is None or self.cost_guard.allowed())
+        if can_call_claude:
             try:
                 return await self._analyze_claude(items)
             except Exception:
