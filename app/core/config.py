@@ -1,8 +1,13 @@
 """Configuration du scoring : poids, directions, seuils.
 
-Ces poids sont le point de calibration principal. À ajuster par backtest
-sur ton historique XAU/USD. Les valeurs par défaut reflètent la hiérarchie
-macro classique : taux réels > DXY > positionnement > momentum.
+Ces poids sont le point de calibration principal.
+
+CALIBRATION 2026-06-25 (Phase 5, cf. results/CALIBRATION_REPORT.md) :
+Poids structurels validés OUT-OF-SAMPLE (train 2020-2023 / test 2024-2026) :
+real_rates 0.50 / dxy 0.30 / cot 0.20 — edge ALIGNMENT stable ~+5.5pp en test
+(vs base rate). Choix ROBUSTE (pas le meilleur sur train, qui surapprenait :
+7.3pp train → 2.0pp test). Le gain sur le défaut antérieur (0.40/0.30/0.30) est
+marginal — les poids d'origine étaient déjà sains. Tactiques inchangés (déjà OK).
 """
 from __future__ import annotations
 
@@ -22,7 +27,7 @@ class FactorConfig:
 STRUCTURAL_FACTORS = [
     FactorConfig(
         name="real_rates_10y",
-        weight=0.40,
+        weight=0.50,  # calibré 2026-06-25 (0.40 -> 0.50, validé OOS)
         direction=-1,  # taux réels montent → or baisse
         timeframe="structural",
         note="TIPS 10Y (FRED DFII10). Le moteur dominant.",
@@ -36,7 +41,7 @@ STRUCTURAL_FACTORS = [
     ),
     FactorConfig(
         name="cot_net_specs",
-        weight=0.30,
+        weight=0.20,  # calibré 2026-06-25 (0.30 -> 0.20, validé OOS)
         direction=+1,  # specs nets longs → soutien haussier (avec nuance d'extrêmes)
         timeframe="structural",
         note="Positionnement net spéculatif CFTC (hebdo).",

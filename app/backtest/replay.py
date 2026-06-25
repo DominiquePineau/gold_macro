@@ -12,7 +12,6 @@ import csv
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from app.core.config import STRUCTURAL_FACTORS, TACTICAL_FACTORS
 from app.core.detector import RegimeDetector
 from app.core.engine import ScoringEngine
 from app.core.models import Alert
@@ -55,13 +54,16 @@ class HistoricalReplay:
     """Rejoue une série de lignes quotidiennes et produit des BacktestPoint."""
 
     def __init__(self, rows: list[dict], *, price_lookback: int = 10,
-                 yield_lookback: int = 5):
+                 yield_lookback: int = 5, structural_factors=None,
+                 tactical_factors=None):
         self.rows = rows
         self.price_lookback = price_lookback
         self.yield_lookback = yield_lookback
+        self.structural_factors = structural_factors
+        self.tactical_factors = tactical_factors
 
     def run(self) -> list[BacktestPoint]:
-        engine = ScoringEngine()
+        engine = ScoringEngine(self.structural_factors, self.tactical_factors)
         detector = RegimeDetector()
         xau_w = RollingWindow(252)
         nominal_w = RollingWindow(252)

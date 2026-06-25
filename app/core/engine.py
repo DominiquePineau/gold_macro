@@ -25,7 +25,15 @@ from app.core.stats import RollingWindow, zscore
 class ScoringEngine:
     """Calcule les scores composites à partir des séries historiques."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        structural_factors: list[config.FactorConfig] | None = None,
+        tactical_factors: list[config.FactorConfig] | None = None,
+    ) -> None:
+        # Facteurs (poids/directions) — surchargeables pour la calibration.
+        # Par défaut : les valeurs de config.py.
+        self.structural_factors = structural_factors or config.STRUCTURAL_FACTORS
+        self.tactical_factors = tactical_factors or config.TACTICAL_FACTORS
         # Historiques glissants par facteur (pour les z-scores)
         self._history: dict[str, RollingWindow] = {}
 
@@ -89,10 +97,10 @@ class ScoringEngine:
 
     def score_structural(self, raw_values: dict[str, float]) -> TimeframeScore:
         return self._score_timeframe(
-            Timeframe.STRUCTURAL, config.STRUCTURAL_FACTORS, raw_values
+            Timeframe.STRUCTURAL, self.structural_factors, raw_values
         )
 
     def score_tactical(self, raw_values: dict[str, float]) -> TimeframeScore:
         return self._score_timeframe(
-            Timeframe.TACTICAL, config.TACTICAL_FACTORS, raw_values
+            Timeframe.TACTICAL, self.tactical_factors, raw_values
         )
