@@ -85,6 +85,76 @@ async def test_fetch_without_feeds_uses_defaults(monkeypatch):
     assert out.next_event_hours is None
 
 
+# --------------------------------------------------------------------------- #
+# Robustesse réseau : retries + cache + mode dégradé (Phase 2.3)
+# --------------------------------------------------------------------------- #
+class _Resp:
+    def __init__(self, payload):
+        self._p = payload
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return self._p
+
+
+def _client_failing_then_ok(fail_times: int, payload):
+    state = {"n": 0}
+
+    class _C:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def get(self, *a, **k):
+            state["n"] += 1
+            if state["n"] <= fail_times:
+                raise RuntimeError("FRED réseau KO")
+            return _Resp(payload)
+
+    return _C, state
+
+
+_OBS = {"observations": [{"value": "2.0"}, {"value": "2.1"}, {"value": "."}]}
+
+
+async def test_series_retries_then_succeeds(monkeypatch):
+    import app.sources.fred as fred
+    Client, state = _client_failing_then_ok(2, _OBS)  # échoue 2x, réussit la 3e
+    monkeypatch.setattr(fred.httpx, "AsyncClient", Client)
+    p = FredProvider(api_key="x")
+    out = await p._series("DFII10", retries=3, backoff=0.0)
+    assert out == [2.0, 2.1]      # "." ignoré
+    assert state["n"] == 3        # 2 échecs + 1 succès
+
+
+async def test_series_falls_back_to_cache(monkeypatch):
+    import app.sources.fred as fred
+    p = FredProvider(api_key="x")
+    # 1er appel OK -> met en cache
+    OkClient, _ = _client_failing_then_ok(0, _OBS)
+    monkeypatch.setattr(fred.httpx, "AsyncClient", OkClient)
+    assert await p._series("DGS10", retries=1, backoff=0.0) == [2.0, 2.1]
+    # FRED tombe -> repli sur cache
+    BoomClient, _ = _client_failing_then_ok(99, _OBS)
+    monkeypatch.setattr(fred.httpx, "AsyncClient", BoomClient)
+    assert await p._series("DGS10", retries=2, backoff=0.0) == [2.0, 2.1]
+
+
+async def test_series_empty_when_fail_and_no_cache(monkeypatch):
+    import app.sources.fred as fred
+    BoomClient, _ = _client_failing_then_ok(99, _OBS)
+    monkeypatch.setattr(fred.httpx, "AsyncClient", BoomClient)
+    p = FredProvider(api_key="x")
+    assert await p._series("DTWEXBGS", retries=2, backoff=0.0) == []  # dégradé, pas d'exception
+
+
 async def test_substitutable_for_orchestrator(monkeypatch):
     """FredProvider doit pouvoir piloter l'orchestrateur comme MockProvider."""
     from app.core.orchestrator import GoldMacroOrchestrator

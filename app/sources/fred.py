@@ -13,6 +13,7 @@ Ce connecteur calcule les variations/momentum à partir des niveaux bruts.
 """
 from __future__ import annotations
 
+import asyncio
 import inspect
 import os
 from datetime import datetime, timedelta, timezone
@@ -24,6 +25,11 @@ from app.core.stats import RollingWindow, pct_change, slope
 from app.sources.base import DataProvider, MacroInputs
 
 FRED_BASE = "https://api.stlouisfed.org/fred/series/observations"
+
+
+async def _sleep(seconds: float) -> None:
+    """Indirection sur asyncio.sleep (monkeypatchable en test)."""
+    await asyncio.sleep(seconds)
 
 # Un "feed" est un callable sans argument renvoyant une valeur (ou un awaitable
 # de valeur). Permet d'injecter prix XAU / COT / calendrier sans violer l'ABC
@@ -59,6 +65,8 @@ class FredProvider(DataProvider):
         self._nominal = RollingWindow(252)
         self._dxy = RollingWindow(252)
         self._xau = RollingWindow(252)
+        # cache des dernières séries réussies (repli si FRED est down)
+        self._series_cache: dict[str, list[float]] = {}
 
     @staticmethod
     async def _resolve(feed: Optional[Feed], default: object) -> object:
@@ -70,7 +78,15 @@ class FredProvider(DataProvider):
             result = await result
         return result if result is not None else default
 
-    async def _series(self, series_id: str, days: int = 30) -> list[float]:
+    async def _series(self, series_id: str, days: int = 30, *,
+                      retries: int = 3, backoff: float = 0.5) -> list[float]:
+        """Récupère une série FRED, avec retries et repli sur cache si FRED down.
+
+        Réessaie `retries` fois (backoff linéaire) en cas d'erreur réseau/HTTP.
+        En cas d'échec total : renvoie la dernière série connue (cache) si
+        disponible, sinon une liste vide (mode dégradé, jamais d'exception qui
+        casse le cycle).
+        """
         start = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
         params = {
             "series_id": series_id,
@@ -79,19 +95,29 @@ class FredProvider(DataProvider):
             "observation_start": start,
             "sort_order": "asc",
         }
-        async with httpx.AsyncClient(timeout=15) as client:
-            r = await client.get(FRED_BASE, params=params)
-            r.raise_for_status()
-            data = r.json()
-        out = []
-        for obs in data.get("observations", []):
-            v = obs.get("value")
-            if v not in (".", "", None):
-                try:
-                    out.append(float(v))
-                except ValueError:
-                    pass
-        return out
+        last_err: Exception | None = None
+        for attempt in range(retries):
+            try:
+                async with httpx.AsyncClient(timeout=15) as client:
+                    r = await client.get(FRED_BASE, params=params)
+                    r.raise_for_status()
+                    data = r.json()
+                out = []
+                for obs in data.get("observations", []):
+                    v = obs.get("value")
+                    if v not in (".", "", None):
+                        try:
+                            out.append(float(v))
+                        except ValueError:
+                            pass
+                if out:
+                    self._series_cache[series_id] = out  # succès -> on met en cache
+                return out
+            except Exception as exc:  # réseau, HTTP, JSON...
+                last_err = exc
+                await _sleep(backoff * (attempt + 1))
+        # échec total -> repli sur le cache (mode dégradé)
+        return self._series_cache.get(series_id, [])
 
     async def fetch(self) -> MacroInputs:
         # Dépendances externes résolues via les feeds injectés (conforme à l'ABC).
