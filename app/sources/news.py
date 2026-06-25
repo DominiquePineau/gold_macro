@@ -12,6 +12,7 @@ Mode dégradé : un flux qui échoue est ignoré (on garde les autres) ; si tout
 from __future__ import annotations
 
 import xml.etree.ElementTree as ET
+import time
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from typing import Optional
@@ -69,11 +70,17 @@ class NewsProvider:
     """Agrège des flux RSS, filtre la pertinence, garde les plus récents."""
 
     def __init__(self, feeds=DEFAULT_FEEDS, *, max_items: int = 8,
-                 filter_relevance: bool = True, timeout: float = 15.0):
+                 filter_relevance: bool = True, timeout: float = 15.0,
+                 cache_ttl_seconds: float = 0.0):
         self.feeds = feeds
         self.max_items = max_items
         self.filter_relevance = filter_relevance
         self.timeout = timeout
+        # cache (découple la fréquence news de la cadence du scheduler) : entre
+        # deux rafraîchissements, on ne re-télécharge pas les flux RSS.
+        self.cache_ttl = cache_ttl_seconds
+        self._cache: list[NewsItem] = []
+        self._cached_at: float = -1e18
 
     async def _fetch(self, client: httpx.AsyncClient, source: str, url: str) -> list[NewsItem]:
         try:
@@ -85,7 +92,9 @@ class NewsProvider:
             return []  # flux en échec -> ignoré
 
     async def fetch_headlines(self) -> list[NewsItem]:
-        """Récupère, filtre, dédoublonne et trie les titres récents."""
+        """Récupère, filtre, dédoublonne et trie les titres récents (avec cache)."""
+        if self.cache_ttl > 0 and (time.monotonic() - self._cached_at) < self.cache_ttl:
+            return list(self._cache)  # servi du cache -> pas de re-téléchargement
         collected: list[NewsItem] = []
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             for source, url in self.feeds:
@@ -106,7 +115,11 @@ class NewsProvider:
         # tri par fraîcheur (les sans-date en dernier), cap max_items
         unique.sort(key=lambda n: n.published or datetime.min.replace(tzinfo=timezone.utc),
                     reverse=True)
-        return unique[:self.max_items]
+        result = unique[:self.max_items]
+        if self.cache_ttl > 0:
+            self._cache = list(result)
+            self._cached_at = time.monotonic()
+        return result
 
     async def __call__(self) -> list[NewsItem]:
         return await self.fetch_headlines()

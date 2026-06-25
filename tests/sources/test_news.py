@@ -97,3 +97,35 @@ async def test_max_items_cap(monkeypatch):
     monkeypatch.setattr(news.httpx, "AsyncClient", _Client)
     prov = NewsProvider(feeds=[("t", "http://x")], max_items=1)
     assert len(await prov.fetch_headlines()) == 1
+
+
+async def test_cache_avoids_refetch(monkeypatch):
+    import app.sources.news as news
+    calls = {"n": 0}
+
+    class _Counting(_Client):
+        async def get(self, url, **k):
+            calls["n"] += 1
+            return _Resp(_RSS)
+
+    monkeypatch.setattr(news.httpx, "AsyncClient", _Counting)
+    prov = NewsProvider(feeds=[("t", "http://x")], cache_ttl_seconds=3600)
+    await prov.fetch_headlines()
+    await prov.fetch_headlines()  # dans la TTL -> servi du cache
+    assert calls["n"] == 1
+
+
+async def test_no_cache_refetches(monkeypatch):
+    import app.sources.news as news
+    calls = {"n": 0}
+
+    class _Counting(_Client):
+        async def get(self, url, **k):
+            calls["n"] += 1
+            return _Resp(_RSS)
+
+    monkeypatch.setattr(news.httpx, "AsyncClient", _Counting)
+    prov = NewsProvider(feeds=[("t", "http://x")], cache_ttl_seconds=0)  # pas de cache
+    await prov.fetch_headlines()
+    await prov.fetch_headlines()
+    assert calls["n"] == 2
