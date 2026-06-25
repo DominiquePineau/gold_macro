@@ -7,3 +7,5 @@ htmlcov/
 .env
 *.egg-info/
 data/
+*.db
+gold_macro.db

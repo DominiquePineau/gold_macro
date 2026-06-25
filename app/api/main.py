@@ -24,8 +24,11 @@ from pydantic import BaseModel
 from app.core.models import Alert, GoldSnapshot
 from app.core.orchestrator import GoldMacroOrchestrator
 from app.sources.mock import MockProvider
+from app.storage.sqlite import SQLiteSnapshotRepository
 
 WEBHOOK_URL = os.environ.get("ALERT_WEBHOOK_URL")
+DB_PATH = os.environ.get("GOLD_MACRO_DB", "gold_macro.db")
+WARMUP_CYCLES = int(os.environ.get("GOLD_MACRO_WARMUP", "20"))
 
 
 def _select_provider():
@@ -37,7 +40,8 @@ def _select_provider():
     return MockProvider()
 
 
-orchestrator = GoldMacroOrchestrator(provider=_select_provider())
+repository = SQLiteSnapshotRepository(db_path=DB_PATH)
+orchestrator = GoldMacroOrchestrator(provider=_select_provider(), repository=repository)
 
 
 def _serialize_snapshot(s: GoldSnapshot) -> dict:
@@ -93,8 +97,8 @@ async def _push_webhook(alerts: list[Alert]) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # warm-up : quelques cycles pour amorcer les z-scores
-    for _ in range(20):
+    # warm-up : quelques cycles pour amorcer les z-scores (configurable)
+    for _ in range(WARMUP_CYCLES):
         await orchestrator.run_cycle()
     yield
 
@@ -119,6 +123,38 @@ async def snapshot():
     if orchestrator.last_snapshot is None:
         raise HTTPException(404, "Aucun snapshot. Appeler /evaluate d'abord.")
     return _serialize_snapshot(orchestrator.last_snapshot)
+
+
+@app.get("/history")
+async def history(since: Optional[str] = None, until: Optional[str] = None,
+                  limit: int = 1000):
+    """Série temporelle des composites persistés (filtrable par fenêtre ISO 8601)."""
+    s = datetime.fromisoformat(since) if since else None
+    u = datetime.fromisoformat(until) if until else None
+    rows = repository.history(since=s, until=u, limit=limit)
+    return [
+        {
+            "timestamp": r.timestamp.isoformat(),
+            "structural_composite": r.structural_composite,
+            "tactical_composite": r.tactical_composite,
+            "sentiment_composite": r.sentiment_composite,
+            "xau_price": r.xau_price,
+            "aligned": r.aligned,
+        }
+        for r in rows
+    ]
+
+
+@app.get("/alerts")
+async def alerts(kind: Optional[str] = None, severity: Optional[str] = None,
+                 limit: int = 1000):
+    """Journal des alertes persistées (filtrable par type / sévérité)."""
+    rows = repository.alerts(kind=kind, severity=severity, limit=limit)
+    return [
+        {"timestamp": a.timestamp.isoformat(), "kind": a.kind,
+         "severity": a.severity, "message": a.message}
+        for a in rows
+    ]
 
 
 @app.get("/score")
