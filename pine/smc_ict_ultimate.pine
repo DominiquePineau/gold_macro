@@ -30,8 +30,8 @@ maxBars   = input.int(15, "Barres max après le sweep pour valider", minval=3, g
 
 grpK = "Kill Zones (heure du graphique)"
 useKZ    = input.bool(true, "Limiter aux Kill Zones", group=grpK)
-kzLon    = input.session("08:00-11:00", "KZ Londres", group=grpK)
-kzNY     = input.session("14:00-17:00", "KZ New York", group=grpK)
+kzLon    = input.session("0800-1100", "KZ Londres", group=grpK)
+kzNY     = input.session("1400-1700", "KZ New York", group=grpK)
 
 grpR = "Risque"
 rr        = input.float(2.0, "Reward:Risk (TP si pas de liquidité)", minval=0.5, step=0.5, group=grpR)
@@ -115,10 +115,12 @@ confluenceLong  = (not useOB) or bullFVG or bullOB
 confluenceShort = (not useOB) or bearFVGc or bearOB
 
 // ------------------------------------------------------------------- Entrées --
-longSetup = allowLong and inKZ and barsSinceSweepSell <= maxBars and
-     (chochUp or trend == 1) and (not useDisc or inDiscount) and inOTElong and confluenceLong
-shortSetup = allowShort and inKZ and barsSinceSweepBuy <= maxBars and
-     (chochDown or trend == -1) and (not useDisc or inPremium) and inOTEshort and confluenceShort
+trendOkLong  = chochUp or trend == 1
+trendOkShort = chochDown or trend == -1
+discOkLong  = (not useDisc) or inDiscount
+discOkShort = (not useDisc) or inPremium
+longSetup  = allowLong  and inKZ and barsSinceSweepSell <= maxBars and trendOkLong  and discOkLong  and inOTElong  and confluenceLong
+shortSetup = allowShort and inKZ and barsSinceSweepBuy  <= maxBars and trendOkShort and discOkShort and inOTEshort and confluenceShort
 
 // Risque / cibles
 longSL  = (na(sweepSellLow) ? low : math.min(sweepSellLow, low)) - slBufATR * atr
