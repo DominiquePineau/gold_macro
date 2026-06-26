@@ -1,0 +1,31 @@
+//@version=6
+// Gold Macro Feed -> gold_macro
+// Envoie tes signaux (setups) au moteur gold_macro via webhook TradingView.
+// 1. Pine Editor -> colle ce script -> "Ajouter au graphique" (sur XAUUSD).
+// 2. Remplace les conditions d'exemple (EMA) par TON setup SMC/ICT.
+// 3. Crée une alerte (voir les étapes envoyées sur Telegram).
+indicator("Gold Macro Feed -> gold_macro", overlay=true)
+
+// --- Secret du webhook (déjà configuré côté serveur) ---
+secret = input.string("7iBcsUEkHI8mLqnnQ-AXuEQS", "Webhook secret")
+
+// --- TES conditions (EXEMPLE : croisement EMA 9/21 ; à remplacer) ---
+fast = ta.ema(close, 9)
+slow = ta.ema(close, 21)
+longCondition  = ta.crossover(fast, slow)
+shortCondition = ta.crossunder(fast, slow)
+
+// --- Construction du JSON envoyé à gold_macro ---
+buildMsg(action) =>
+    '{"secret":"' + secret + '","symbol":"' + syminfo.ticker +
+      '","action":"' + action + '","price":' + str.tostring(close) +
+      ',"strategy":"GoldFeed","message":"' + action + ' ' + syminfo.ticker + '"}'
+
+if longCondition
+    alert(buildMsg("BUY"), alert.freq_once_per_bar_close)
+if shortCondition
+    alert(buildMsg("SELL"), alert.freq_once_per_bar_close)
+
+// repères visuels
+plotshape(longCondition,  style=shape.triangleup,   location=location.belowbar, color=color.new(color.green, 0), size=size.tiny)
+plotshape(shortCondition, style=shape.triangledown, location=location.abovebar, color=color.new(color.red, 0),   size=size.tiny)

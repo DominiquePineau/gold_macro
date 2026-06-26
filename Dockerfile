@@ -11,8 +11,8 @@ WORKDIR /app
 COPY --from=build /install /usr/local
 COPY app ./app
 COPY demo.py README.md ./
-# utilisateur non-root
-RUN useradd -m gold && chown -R gold:gold /app
+# utilisateur non-root + dossier de données inscriptible (volume monté sur /data)
+RUN useradd -m gold && mkdir -p /data && chown -R gold:gold /app /data
 USER gold
 # Le service (api ou scheduler) est choisi par docker-compose (command:).
 EXPOSE 8000

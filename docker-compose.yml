@@ -25,7 +25,7 @@ services:
       GOLD_MACRO_DB: /data/gold_macro.db
       GOLD_MACRO_WARMUP: "0"               # l'API lit la DB ; le scheduler écrit
     ports:
-      - "8000:8000"
+      - "8090:8000"   # 8000 occupé sur ce box -> dashboard sur :8090
     volumes:
       - gold_data:/data
     depends_on: [scheduler]
