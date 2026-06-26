@@ -1,0 +1,158 @@
+//@version=6
+// ============================================================================
+//  SMC / ICT — Ultimate (XAU/USD)
+//  Concepts : Market Structure (BOS / CHoCH) · Order Blocks · Fair Value Gaps
+//             · Liquidity Sweeps (buy/sell-side) · Premium/Discount + OTE
+//             · Kill Zones (Londres / New York) · gestion du risque
+//  Modèle d'entrée (ICT) : balayage de liquidité -> CHoCH -> retour en
+//  discount (OTE) sur un FVG/OB -> entrée, SL sous le sweep, TP sur la
+//  liquidité opposée (RR mini).
+//  Alertes : envoie un JSON au webhook gold_macro (alimente le dashboard).
+//  ⚠️ Outil de contexte + backtest. Le SMC/ICT mécanisé bat rarement les coûts
+//     sur XAU (cf. rapport joint) — à utiliser surtout en lecture discrétionnaire.
+// ============================================================================
+strategy("SMC/ICT Ultimate — XAU", overlay=true, initial_capital=10000,
+     default_qty_type=strategy.percent_of_equity, default_qty_value=100,
+     commission_type=strategy.commission.cash_per_order, commission_value=0.30,
+     slippage=2, pyramiding=0, calc_on_every_tick=false)
+
+// ----------------------------------------------------------------- Inputs ----
+grpS = "Structure & zones"
+pivLen   = input.int(5, "Longueur des pivots (structure)", minval=2, group=grpS)
+fvgAtrK  = input.float(0.25, "Taille mini FVG (× ATR14)", minval=0.0, step=0.05, group=grpS)
+useOB    = input.bool(true, "Exiger un Order Block / FVG à l'entrée", group=grpS)
+
+grpL = "Liquidité & biais"
+liqLook   = input.int(20, "Fenêtre de liquidité (equal highs/lows)", minval=5, group=grpL)
+useDisc   = input.bool(true, "N'entrer qu'en Discount (long) / Premium (short)", group=grpL)
+useOTE    = input.bool(true, "Zone OTE (0.62–0.79 du dealing range)", group=grpL)
+maxBars   = input.int(15, "Barres max après le sweep pour valider", minval=3, group=grpL)
+
+grpK = "Kill Zones (heure du graphique)"
+useKZ    = input.bool(true, "Limiter aux Kill Zones", group=grpK)
+kzLon    = input.session("08:00-11:00", "KZ Londres", group=grpK)
+kzNY     = input.session("14:00-17:00", "KZ New York", group=grpK)
+
+grpR = "Risque"
+rr        = input.float(2.0, "Reward:Risk (TP si pas de liquidité)", minval=0.5, step=0.5, group=grpR)
+slBufATR  = input.float(0.5, "Buffer SL (× ATR14)", minval=0.0, step=0.1, group=grpR)
+useLiqTP  = input.bool(true, "TP sur liquidité opposée (sinon RR fixe)", group=grpR)
+allowLong = input.bool(true, "Longs", inline="d", group=grpR)
+allowShort= input.bool(true, "Shorts", inline="d", group=grpR)
+
+grpW = "Webhook gold_macro"
+secret = input.string("7iBcsUEkHI8mLqnnQ-AXuEQS", "Webhook secret", group=grpW)
+
+// ----------------------------------------------------------------- Tools -----
+atr = ta.atr(14)
+inKZ = (not useKZ) or (not na(time(timeframe.period, kzLon)) or not na(time(timeframe.period, kzNY)))
+
+// Pivots (structure) confirmés (lag = pivLen)
+ph = ta.pivothigh(high, pivLen, pivLen)
+pl = ta.pivotlow(low, pivLen, pivLen)
+
+var float lastPH = na      // dernier swing high confirmé
+var float lastPL = na      // dernier swing low confirmé
+var float prevPH = na
+var float prevPL = na
+if not na(ph)
+    prevPH := lastPH
+    lastPH := ph
+if not na(pl)
+    prevPL := lastPL
+    lastPL := pl
+
+// Dealing range courant (du dernier swing low au dernier swing high)
+rngHi = math.max(nz(lastPH, high), high)
+rngLo = math.min(nz(lastPL, low), low)
+eq    = (rngHi + rngLo) / 2.0
+inDiscount = close < eq
+inPremium  = close > eq
+// OTE : retracement 0.62–0.79 du range (long = bas du range)
+oteLongHi = rngHi - 0.62 * (rngHi - rngLo)
+oteLongLo = rngHi - 0.79 * (rngHi - rngLo)
+oteShortLo = rngLo + 0.62 * (rngHi - rngLo)
+oteShortHi = rngLo + 0.79 * (rngHi - rngLo)
+inOTElong  = (not useOTE) or (close <= oteLongHi and close >= oteLongLo)
+inOTEshort = (not useOTE) or (close >= oteShortLo and close <= oteShortHi)
+
+// --------------------------------------------------- Market structure (BOS/CHoCH)
+var int trend = 0          // 1 = bull, -1 = bear, 0 = indéfini
+bosUp   = not na(lastPH) and close > lastPH
+bosDown = not na(lastPL) and close < lastPL
+chochUp   = trend == -1 and bosUp     // changement de caractère haussier
+chochDown = trend == 1  and bosDown
+if bosUp
+    trend := 1
+if bosDown
+    trend := -1
+
+// ------------------------------------------------------------ Liquidity sweeps
+// Sell-side : mèche sous le plus bas des liqLook barres précédentes, close au-dessus
+priorLow  = ta.lowest(low,  liqLook)[1]
+priorHigh = ta.highest(high, liqLook)[1]
+sweepSell = low  < priorLow  and close > priorLow      // liquidité basse balayée -> biais long
+sweepBuy  = high > priorHigh and close < priorHigh      // liquidité haute balayée -> biais short
+
+var int barsSinceSweepSell = 1000
+var int barsSinceSweepBuy  = 1000
+barsSinceSweepSell := sweepSell ? 0 : barsSinceSweepSell + 1
+barsSinceSweepBuy  := sweepBuy  ? 0 : barsSinceSweepBuy  + 1
+var float sweepSellLow = na
+var float sweepBuyHigh = na
+if sweepSell
+    sweepSellLow := low
+if sweepBuy
+    sweepBuyHigh := high
+
+// ------------------------------------------------------------- FVG / Order Block
+bullFVG = low > high[2] and (low - high[2]) >= fvgAtrK * atr
+bearFVGc = high < low[2] and (low[2] - high) >= fvgAtrK * atr
+// Order block simplifié : dernière bougie baissière avant une cassure haussière
+bullOB = close[1] < open[1] and close > high[1]
+bearOB = close[1] > open[1] and close < low[1]
+confluenceLong  = (not useOB) or bullFVG or bullOB
+confluenceShort = (not useOB) or bearFVGc or bearOB
+
+// ------------------------------------------------------------------- Entrées --
+longSetup = allowLong and inKZ and barsSinceSweepSell <= maxBars and
+     (chochUp or trend == 1) and (not useDisc or inDiscount) and inOTElong and confluenceLong
+shortSetup = allowShort and inKZ and barsSinceSweepBuy <= maxBars and
+     (chochDown or trend == -1) and (not useDisc or inPremium) and inOTEshort and confluenceShort
+
+// Risque / cibles
+longSL  = (na(sweepSellLow) ? low : math.min(sweepSellLow, low)) - slBufATR * atr
+shortSL = (na(sweepBuyHigh) ? high : math.max(sweepBuyHigh, high)) + slBufATR * atr
+longRisk  = close - longSL
+shortRisk = shortSL - close
+longTP  = useLiqTP ? rngHi : close + rr * longRisk
+shortTP = useLiqTP ? rngLo : close - rr * shortRisk
+
+canLong  = longSetup  and longRisk  > 0 and strategy.position_size == 0
+canShort = shortSetup and shortRisk > 0 and strategy.position_size == 0
+
+if canLong
+    strategy.entry("L", strategy.long)
+    strategy.exit("L-x", from_entry="L", stop=longSL, limit=longTP)
+if canShort
+    strategy.entry("S", strategy.short)
+    strategy.exit("S-x", from_entry="S", stop=shortSL, limit=shortTP)
+
+// --------------------------------------------------------------- Webhook ------
+f_json(action) =>
+    '{"secret":"' + secret + '","symbol":"' + syminfo.ticker + '","action":"' + action +
+      '","price":' + str.tostring(close) + ',"strategy":"SMC_ICT","message":"' + action +
+      ' setup ICT (sweep+CHoCH+FVG/OB, ' + (inDiscount ? "discount" : "premium") + ')"}'
+if canLong
+    alert(f_json("BUY"), alert.freq_once_per_bar_close)
+if canShort
+    alert(f_json("SELL"), alert.freq_once_per_bar_close)
+
+// ----------------------------------------------------------------- Visuels ----
+plot(eq, "Équilibre (0.5)", color=color.new(color.gray, 50), style=plot.style_circles)
+plotshape(sweepSell, "Sweep SSL", shape.triangleup, location.belowbar, color.new(color.teal,0), size=size.tiny)
+plotshape(sweepBuy,  "Sweep BSL", shape.triangledown, location.abovebar, color.new(color.maroon,0), size=size.tiny)
+bgcolor(useKZ and inKZ ? color.new(color.blue, 92) : na, title="Kill Zone")
+plotshape(canLong,  "Entrée Long",  shape.labelup,   location.belowbar, color.new(color.green,0), text="L", textcolor=color.white, size=size.small)
+plotshape(canShort, "Entrée Short", shape.labeldown, location.abovebar, color.new(color.red,0),   text="S", textcolor=color.white, size=size.small)
+plot(trend, "Tendance (1/-1)", display=display.data_window)
