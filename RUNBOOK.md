@@ -58,6 +58,23 @@ Le scheduler est le moteur live ; l'API sert l'historique. Ils partagent le
 volume `gold_data` (SQLite). La base du système `trade` est montée en lecture
 seule pour le prix XAU.
 
+### Dashboard web (cockpit)
+Une fois l'API lancée : ouvre **http://localhost:8000/** — cockpit React (scores
+en direct, courbe d'historique structurel/tactique, journal d'alertes, dernière
+alerte TradingView). Rafraîchi toutes les 10 s.
+
+### Intégration TradingView (entrée)
+Tes alertes Pine peuvent alimenter le moteur. Crée une alerte TradingView avec :
+- **Webhook URL** : `http://<ton-hote>:8000/tradingview/webhook`
+- **Message (JSON)** :
+  ```json
+  {"secret":"<TRADINGVIEW_WEBHOOK_SECRET>","symbol":"XAUUSD","action":"BUY","price":{{close}},"strategy":"SMC","message":"sweep long"}
+  ```
+Le moteur ingère le signal (souple sur les clés) et l'affiche sur le dashboard.
+Si `TRADINGVIEW_WEBHOOK_SECRET` est défini, le `secret` du JSON doit correspondre.
+NB : Pine ne peut PAS lire de données externes → pas d'affichage du biais SUR le
+graphique TradingView (sens sortie non faisable sans Pine Seeds).
+
 ## 4. Interpréter les scores
 
 Composites sur **[-100, +100]** (somme pondérée des z-scores × direction) :

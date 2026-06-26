@@ -57,3 +57,37 @@ def test_alerts_endpoint(client):
 
 def test_snapshot_404_before_evaluate(client):
     assert client.get("/snapshot").status_code == 404
+
+
+def test_dashboard_served(client):
+    r = client.get("/")
+    assert r.status_code == 200
+    assert "text/html" in r.headers["content-type"]
+    assert "Gold Macro Engine" in r.text
+
+
+def test_tradingview_webhook_and_signals(client):
+    payload = {"symbol": "XAUUSD", "action": "BUY", "price": 4035.0,
+               "strategy": "SMC", "message": "sweep long"}
+    r = client.post("/tradingview/webhook", json=payload)
+    assert r.status_code == 200
+    assert r.json()["stored"]["action"] == "BUY"
+    sigs = client.get("/tradingview/signals").json()
+    assert len(sigs) >= 1
+    assert sigs[0]["symbol"] == "XAUUSD"
+
+
+def test_tradingview_secret_enforced(tmp_path, monkeypatch):
+    import importlib
+    monkeypatch.setenv("GOLD_MACRO_DB", str(tmp_path / "tv.db"))
+    monkeypatch.setenv("GOLD_MACRO_WARMUP", "0")
+    monkeypatch.setenv("TRADINGVIEW_WEBHOOK_SECRET", "s3cret")
+    import app.api.main as main
+    importlib.reload(main)
+    from fastapi.testclient import TestClient
+    with TestClient(main.app) as c:
+        # mauvais secret -> 401
+        assert c.post("/tradingview/webhook", json={"action": "BUY"}).status_code == 401
+        # bon secret -> 200
+        assert c.post("/tradingview/webhook",
+                      json={"action": "BUY", "secret": "s3cret"}).status_code == 200

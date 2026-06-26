@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Gold Macro Engine — Cockpit</title>
+<style>
+  :root { --bg:#0f1115; --card:#181b22; --line:#2a2f3a; --txt:#e6e8ee; --mut:#8b93a3;
+          --bull:#2ecc71; --bear:#e74c3c; --neutral:#7f8c9a; --warn:#e67e22; --crit:#e74c3c; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--txt);
+         font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; }
+  .wrap { max-width:1000px; margin:0 auto; padding:18px; }
+  h1 { font-size:18px; margin:0 0 2px; } .sub { color:var(--mut); font-size:12px; margin-bottom:16px; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px; }
+  .card h2 { font-size:13px; color:var(--mut); margin:0 0 10px; text-transform:uppercase; letter-spacing:.04em; }
+  .big { font-size:30px; font-weight:700; } .row { display:flex; justify-content:space-between; align-items:baseline; }
+  .bar { height:10px; background:#222732; border-radius:6px; overflow:hidden; position:relative; margin:6px 0; }
+  .bar > i { position:absolute; top:0; bottom:0; left:50%; }
+  .badge { display:inline-block; padding:2px 8px; border-radius:20px; font-size:12px; font-weight:600; }
+  .feed { max-height:320px; overflow:auto; } .alert { border-left:3px solid var(--line); padding:6px 10px; margin:6px 0;
+         background:#13161c; border-radius:0 8px 8px 0; font-size:13px; }
+  .alert .k { font-weight:700; } .alert .t { color:var(--mut); font-size:11px; }
+  .muted { color:var(--mut); font-size:12px; } .tv { font-size:13px; }
+  @media(max-width:720px){ .grid{ grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="root">Chargement…</div>
+<script type="module">
+import React, { useState, useEffect } from "https://esm.sh/react@18.2.0";
+import { createRoot } from "https://esm.sh/react-dom@18.2.0/client";
+import htm from "https://esm.sh/htm@3.1.1";
+const html = htm.bind(React.createElement);
+
+const fmt = (v, d=1) => (v===null||v===undefined) ? "—" : Number(v).toFixed(d);
+const color = (v) => v > 15 ? "var(--bull)" : v < -15 ? "var(--bear)" : "var(--neutral)";
+const biasLabel = (v) => v>=50?"STRONG_BULL":v>=15?"BULL":v<=-50?"STRONG_BEAR":v<=-15?"BEAR":"NEUTRAL";
+const sevColor = (s) => s==="CRITICAL"?"var(--crit)":s==="WARNING"?"var(--warn)":"var(--mut)";
+
+function Composite({ label, value }) {
+  const c = color(value), pct = Math.min(50, Math.abs(value)/2); // 0..50% de demi-barre
+  return html`<div>
+    <div class="row"><span class="muted">${label}</span>
+      <span class="badge" style=${{background:c+"22", color:c}}>${biasLabel(value)}</span></div>
+    <div class="big" style=${{color:c}}>${value>0?"+":""}${fmt(value,1)}</div>
+    <div class="bar"><i style=${{ [value>=0?"left":"right"]:"50%", width:pct+"%", background:c }}></i></div>
+  </div>`;
+}
+
+function Chart({ rows }) {
+  if (!rows.length) return html`<div class="muted">Pas encore d'historique.</div>`;
+  const W=460,H=150,P=8;
+  const xs = rows.map((_,i)=> P + i*(W-2*P)/Math.max(1,rows.length-1));
+  const sy = (v)=> H/2 - (Math.max(-100,Math.min(100,v))/100)*(H/2-P);
+  const path = (key)=> rows.map((r,i)=> (i?"L":"M")+xs[i].toFixed(1)+" "+sy(r[key]).toFixed(1)).join(" ");
+  return html`<svg viewBox=${`0 0 ${W} ${H}`} width="100%" height="160">
+    <line x1=${P} y1=${H/2} x2=${W-P} y2=${H/2} stroke="var(--line)" stroke-dasharray="3 3"/>
+    <path d=${path("structural_composite")} fill="none" stroke="#5aa9ff" stroke-width="1.8"/>
+    <path d=${path("tactical_composite")} fill="none" stroke="#ffb454" stroke-width="1.8"/>
+  </svg>
+  <div class="muted"><span style=${{color:"#5aa9ff"}}>■</span> structurel
+     &nbsp; <span style=${{color:"#ffb454"}}>■</span> tactique</div>`;
+}
+
+function App() {
+  const [hist,setHist]=useState([]); const [alerts,setAlerts]=useState([]);
+  const [tv,setTv]=useState([]); const [err,setErr]=useState(null); const [ts,setTs]=useState(null);
+  const load = async () => {
+    try {
+      const [h,a,t] = await Promise.all([
+        fetch("/history?limit=200").then(r=>r.json()),
+        fetch("/alerts?limit=30").then(r=>r.json()),
+        fetch("/tradingview/signals").then(r=>r.ok?r.json():[]).catch(()=>[]),
+      ]);
+      setHist(h); setAlerts(a); setTv(t); setErr(null); setTs(new Date());
+    } catch(e){ setErr(String(e)); }
+  };
+  useEffect(()=>{ load(); const id=setInterval(load, 10000); return ()=>clearInterval(id); },[]);
+
+  const cur = hist.length ? hist[hist.length-1] : null;
+  return html`
+    <h1>🥇 Gold Macro Engine — Cockpit</h1>
+    <div class="sub">Outil de CONTEXTE (n'exécute aucun ordre) · maj ${ts?ts.toLocaleTimeString():"…"} ${err?html`· <span style=${{color:"var(--bear)"}}>erreur: ${err}</span>`:""}</div>
+    <div class="grid">
+      <div class="card">
+        <h2>Biais actuel</h2>
+        ${cur ? html`
+          <div class="row" style=${{marginBottom:8}}>
+            <span class="muted">XAU/USD</span><span class="big" style=${{fontSize:"20px"}}>${fmt(cur.xau_price,2)}</span></div>
+          <${Composite} label="Structurel (HTF)" value=${cur.structural_composite}/>
+          <div style=${{height:8}}></div>
+          <${Composite} label="Tactique (LTF)" value=${cur.tactical_composite}/>
+          <div class="row" style=${{marginTop:10}}>
+            <span class="muted">Sentiment</span><span>${fmt(cur.sentiment_composite,1)}</span></div>
+          <div class="row"><span class="muted">Aligné</span>
+            <span class="badge" style=${{background: cur.aligned?"#2ecc7122":"#7f8c9a22", color: cur.aligned?"var(--bull)":"var(--mut)"}}>
+              ${cur.aligned?"OUI — conviction":"non"}</span></div>
+        ` : html`<div class="muted">En attente du premier cycle…</div>`}
+      </div>
+      <div class="card"><h2>Historique des composites</h2><${Chart} rows=${hist}/></div>
+      <div class="card">
+        <h2>Dernière alerte TradingView</h2>
+        ${tv.length ? html`<div class="tv">
+            <b>${tv[0].action||"—"}</b> ${tv[0].symbol} ${tv[0].price?("@ "+tv[0].price):""}
+            <div class="muted">${tv[0].strategy} · ${new Date(tv[0].received_at).toLocaleString()}</div>
+            <div>${tv[0].message}</div></div>`
+          : html`<div class="muted">Aucune alerte TradingView reçue. (configure un webhook Pine → /tradingview/webhook)</div>`}
+      </div>
+      <div class="card">
+        <h2>Journal d'alertes</h2>
+        <div class="feed">
+          ${alerts.length ? alerts.map((a,i)=> html`<div class="alert" key=${i} style=${{borderLeftColor:sevColor(a.severity)}}>
+            <span class="k" style=${{color:sevColor(a.severity)}}>${a.severity} · ${a.kind}</span>
+            <div>${a.message}</div><div class="t">${new Date(a.timestamp).toLocaleString()}</div></div>`)
+          : html`<div class="muted">Aucune alerte.</div>`}
+        </div>
+      </div>
+    </div>`;
+}
+createRoot(document.getElementById("root")).render(html`<${App}/>`);
+</script>
+</body>
+</html>
