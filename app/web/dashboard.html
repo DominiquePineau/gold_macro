@@ -69,10 +69,11 @@ function App() {
   const [tv,setTv]=useState([]); const [err,setErr]=useState(null); const [ts,setTs]=useState(null);
   const load = async () => {
     try {
+      // URLs RELATIVES -> marche en direct (:8090/) ET derrière un préfixe (/gold/)
       const [h,a,t] = await Promise.all([
-        fetch("/history?limit=200").then(r=>r.json()),
-        fetch("/alerts?limit=30").then(r=>r.json()),
-        fetch("/tradingview/signals").then(r=>r.ok?r.json():[]).catch(()=>[]),
+        fetch("history?limit=200").then(r=>r.json()),
+        fetch("alerts?limit=30").then(r=>r.json()),
+        fetch("tradingview/signals").then(r=>r.ok?r.json():[]).catch(()=>[]),
       ]);
       setHist(h); setAlerts(a); setTv(t); setErr(null); setTs(new Date());
     } catch(e){ setErr(String(e)); }
