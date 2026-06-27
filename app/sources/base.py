@@ -29,6 +29,7 @@ class MacroInputs:
     xau_price: Optional[float] = None
     real_rates_level: Optional[float] = None  # niveau absolu (pour divergence)
     next_event_hours: Optional[float] = None
+    next_event_name: Optional[str] = None     # ex. "CPI (inflation US)"
 
     # Sentiment (optionnel)
     retail_long_pct: Optional[float] = None

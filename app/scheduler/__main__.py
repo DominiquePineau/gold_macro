@@ -27,6 +27,7 @@ from app.sentiment.cost import CostGuard
 from app.sources.news import NewsProvider
 from app.sources.positioning import ProxyPositioningFeed
 from app.sources.price import TradeDBPriceFeed
+from app.sources.calendar import EconomicCalendar
 from app.sources.real import RealProvider
 from app.storage.sqlite import SQLiteSnapshotRepository
 
@@ -44,8 +45,12 @@ async def main() -> None:
     cfg_mod.validate(cfg, required=("FRED_API_KEY",))
     print("Config:", cfg_mod.summary(cfg), flush=True)
 
+    fomc = [d.strip() for d in os.environ.get("GOLD_MACRO_FOMC_DATES", "").split(",") if d.strip()] or None
+    econ = EconomicCalendar(cfg.fred_api_key, fomc_dates=fomc) if cfg.fred_api_key else None
     provider = RealProvider(
         price_feed=TradeDBPriceFeed(),
+        calendar=econ.hours_to_next if econ else None,
+        calendar_name_feed=econ.next_event_name if econ else None,
         positioning_feed=ProxyPositioningFeed(),
         news_feed=NewsProvider(cache_ttl_seconds=_f("GOLD_MACRO_NEWS_TTL", 1800.0)),
     )

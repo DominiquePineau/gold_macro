@@ -37,6 +37,7 @@ class RealProvider(DataProvider):
     def __init__(self, *, fred_api_key: Optional[str] = None,
                  price_feed: Optional[Feed] = None,
                  calendar: Optional[Feed] = None,
+                 calendar_name_feed: Optional[Feed] = None,
                  positioning_feed: Optional[Feed] = None,
                  news_feed: Optional[Feed] = None,
                  cot_provider: Optional[CotProvider] = None):
@@ -47,12 +48,16 @@ class RealProvider(DataProvider):
             cot_feed=cot.net_specs,
             calendar=calendar,
         )
+        self.calendar_name_feed = calendar_name_feed
         self.positioning_feed = positioning_feed
         self.news_feed = news_feed
 
     async def fetch(self) -> MacroInputs:
         # 1) socle macro (FRED + COT + prix + calendrier) via FredProvider.
         mi = await self.macro.fetch()
+        name = await _resolve(self.calendar_name_feed)
+        if name is not None:
+            mi.next_event_name = str(name)
 
         # 2) sentiment de positionnement (optionnel).
         pos = await _resolve(self.positioning_feed)

@@ -36,6 +36,7 @@ class RegimeDetector:
         sentiment_score: Optional[float] = None,
         sentiment_contrarian: bool = False,
         event_proximity_threshold: float = 4.0,
+        next_event_name: Optional[str] = None,
     ) -> list[Alert]:
         alerts: list[Alert] = []
 
@@ -135,14 +136,16 @@ class RegimeDetector:
                     ),
                 ))
 
-        # --- 4. EVENT PROXIMITY ---
+        # --- 4. EVENT PROXIMITY (nommé + sévérité escaladée à l'approche) ---
         if next_event_hours is not None and 0 <= next_event_hours <= event_proximity_threshold:
+            label = next_event_name or "Événement macro majeur"
+            sev = "WARNING" if next_event_hours <= 1.0 else "INFO"
             alerts.append(Alert(
                 kind="EVENT_PROXIMITY",
-                severity="INFO",
+                severity=sev,
                 message=(
-                    f"Événement macro majeur dans {next_event_hours:.1f}h. "
-                    f"Volatilité attendue — prudence sur les nouvelles positions."
+                    f"{label} dans {next_event_hours:.1f}h. "
+                    f"Volatilité attendue sur l'or — prudence sur les nouvelles positions."
                 ),
             ))
 

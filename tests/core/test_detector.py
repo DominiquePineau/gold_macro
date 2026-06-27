@@ -140,3 +140,21 @@ def test_event_proximity_boundary_inclusive():
     alerts = d.evaluate(_ts(0.0), _ts(0.0, Timeframe.TACTICAL),
                         next_event_hours=4.0, event_proximity_threshold=4.0)
     assert "EVENT_PROXIMITY" in _kinds(alerts)
+
+
+def test_event_proximity_includes_name():
+    d = RegimeDetector()
+    alerts = d.evaluate(_ts(0.0), _ts(0.0, Timeframe.TACTICAL),
+                        next_event_hours=2.0, next_event_name="CPI (inflation US)")
+    ev = [a for a in alerts if a.kind == "EVENT_PROXIMITY"][0]
+    assert "CPI" in ev.message
+    assert ev.severity == "INFO"  # >1h -> INFO
+
+
+def test_event_proximity_escalates_within_1h():
+    d = RegimeDetector()
+    alerts = d.evaluate(_ts(0.0), _ts(0.0, Timeframe.TACTICAL),
+                        next_event_hours=0.5, next_event_name="FOMC (décision Fed)")
+    ev = [a for a in alerts if a.kind == "EVENT_PROXIMITY"][0]
+    assert ev.severity == "WARNING"  # <=1h -> WARNING
+    assert "FOMC" in ev.message

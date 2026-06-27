@@ -73,6 +73,7 @@ class GoldMacroOrchestrator:
             xau_price=inputs.xau_price,
             real_rates_value=inputs.real_rates_level,
             next_event_hours=inputs.next_event_hours,
+            next_event_name=inputs.next_event_name,
             sentiment_score=sent.composite,
             sentiment_contrarian=sent.contrarian_flip,
         )
