@@ -19,11 +19,13 @@ class MacroInputs:
     real_rates_10y: float          # TIPS 10Y, variation récente (bps)
     dxy_daily: float               # variation DXY daily (%)
     cot_net_specs: float           # positionnement net spéculatif
+    breakeven_10y: float = 0.0     # breakeven inflation 10Y, variation (#2)
 
     # Tactiques
-    price_momentum: float          # pente prix XAU court terme
-    dxy_intraday: float            # variation DXY intraday (%)
-    yield_momentum_10y: float      # momentum rendement nominal
+    price_momentum: float = 0.0    # pente prix XAU court terme
+    dxy_intraday: float = 0.0      # variation DXY intraday (%)
+    yield_momentum_10y: float = 0.0  # momentum rendement nominal
+    rate_expect_2y: float = 0.0    # variation 2Y US = anticip. taux Fed (#2)
 
     # Contexte
     xau_price: Optional[float] = None
@@ -38,6 +40,7 @@ class MacroInputs:
     headlines: Optional[list] = None  # list[NewsItem]
 
     def structural_dict(self) -> dict[str, float]:
+        # breakeven_10y reste un CONTEXTE (non scoré : n'améliore pas l'edge).
         return {
             "real_rates_10y": self.real_rates_10y,
             "dxy_daily": self.dxy_daily,
@@ -45,6 +48,7 @@ class MacroInputs:
         }
 
     def tactical_dict(self) -> dict[str, float]:
+        # rate_expect_2y reste un CONTEXTE (non scoré).
         return {
             "price_momentum": self.price_momentum,
             "dxy_intraday": self.dxy_intraday,

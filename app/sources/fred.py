@@ -128,6 +128,8 @@ class FredProvider(DataProvider):
         tips = await self._series("DFII10")
         nominal = await self._series("DGS10")
         dxy = await self._series("DTWEXBGS")
+        breakeven = await self._series("T10YIE")   # anticipations d'inflation 10Y (#2)
+        dgs2 = await self._series("DGS2")           # taux 2Y = anticip. taux Fed (#2)
 
         for v in tips:
             self._tips.push(v)
@@ -144,15 +146,19 @@ class FredProvider(DataProvider):
         dxy_intraday = pct_change(dxy, 1) if len(dxy) >= 2 else 0.0  # daily proxy
         yield_mom = slope(self._nominal.values(), lookback=5)
         price_mom = slope(self._xau.values(), lookback=10) if len(self._xau) >= 3 else 0.0
+        be_chg = ((breakeven[-1] - breakeven[-2]) * 100) if len(breakeven) >= 2 else 0.0
+        dgs2_chg = ((dgs2[-1] - dgs2[-2]) * 100) if len(dgs2) >= 2 else 0.0
 
         return MacroInputs(
             timestamp=datetime.now(timezone.utc),
             real_rates_10y=tips_chg,
             dxy_daily=dxy_daily,
             cot_net_specs=cot_net_specs,
+            breakeven_10y=be_chg,
             price_momentum=price_mom,
             dxy_intraday=dxy_intraday,
             yield_momentum_10y=yield_mom,
+            rate_expect_2y=dgs2_chg,
             xau_price=xau_price,
             real_rates_level=tips[-1] if tips else None,
             next_event_hours=next_event_hours,

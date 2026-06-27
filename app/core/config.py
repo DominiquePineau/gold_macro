@@ -27,7 +27,7 @@ class FactorConfig:
 STRUCTURAL_FACTORS = [
     FactorConfig(
         name="real_rates_10y",
-        weight=0.50,  # calibré 2026-06-25 (0.40 -> 0.50, validé OOS)
+        weight=0.50,  # calibré 2026-06-25 (validé OOS)
         direction=-1,  # taux réels montent → or baisse
         timeframe="structural",
         note="TIPS 10Y (FRED DFII10). Le moteur dominant.",
@@ -41,12 +41,16 @@ STRUCTURAL_FACTORS = [
     ),
     FactorConfig(
         name="cot_net_specs",
-        weight=0.20,  # calibré 2026-06-25 (0.30 -> 0.20, validé OOS)
+        weight=0.20,  # calibré 2026-06-25 (validé OOS)
         direction=+1,  # specs nets longs → soutien haussier (avec nuance d'extrêmes)
         timeframe="structural",
         note="Positionnement net spéculatif CFTC (hebdo).",
     ),
 ]
+# NB piste #2 (2026-06-27) : breakevens 10Y + 2Y testés comme facteurs SCORÉS ->
+# n'améliorent PAS l'edge ALIGNMENT (collinéaires avec taux réels/rendements ->
+# diluent : +5.4 vs +6.5pp à N=20). On garde le modèle 3-facteurs validé, et on
+# expose breakevens/2Y en CONTEXTE (non scorés) via MacroInputs.
 
 # --- Facteurs TACTIQUES (timing, rapides) ---
 TACTICAL_FACTORS = [

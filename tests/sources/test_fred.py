@@ -37,6 +37,8 @@ def _patch_series(provider, monkeypatch):
         "DFII10": [1.90, 2.00, 2.10],     # TIPS -> dernier delta = +10 bps
         "DGS10": [4.0, 4.1, 4.2, 4.3, 4.4],
         "DTWEXBGS": [100.0, 101.0],       # +1 % daily
+        "T10YIE": [2.2, 2.3],             # breakeven (contexte)
+        "DGS2": [4.0, 4.1],               # 2Y (contexte)
     }
 
     async def fake_series(series_id, days=30):

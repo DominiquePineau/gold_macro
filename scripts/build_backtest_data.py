@@ -48,6 +48,8 @@ def main() -> None:
     tips = fred_series("DFII10", key)
     nominal = fred_series("DGS10", key)
     dxy = fred_series("DTWEXBGS", key)
+    breakeven = fred_series("T10YIE", key)   # #2 anticipations inflation
+    dgs2 = fred_series("DGS2", key)           # #2 anticipations taux Fed
 
     print("XAU resample D1...", flush=True)
     m5 = pd.read_parquet(XAU_M5)
@@ -67,6 +69,8 @@ def main() -> None:
     df["nominal_10y"] = nominal.reindex(idx, method="ffill")
     df["dxy"] = dxy.reindex(idx, method="ffill")
     df["cot_net_spec"] = cot.reindex(idx, method="ffill")
+    df["breakeven_10y"] = breakeven.reindex(idx, method="ffill")
+    df["dgs2"] = dgs2.reindex(idx, method="ffill")
     df = df.dropna()
 
     out = Path(__file__).resolve().parent.parent / "data" / "backtest_daily.csv"

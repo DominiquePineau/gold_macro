@@ -17,7 +17,8 @@ from app.core.engine import ScoringEngine
 from app.core.models import Alert
 from app.core.stats import RollingWindow, pct_change, slope
 
-_NUMERIC = ("xau_close", "real_rates_level", "nominal_10y", "dxy", "cot_net_spec")
+_NUMERIC = ("xau_close", "real_rates_level", "nominal_10y", "dxy", "cot_net_spec",
+            "breakeven_10y", "dgs2")
 
 
 def load_rows(path: str) -> list[dict]:
@@ -29,7 +30,7 @@ def load_rows(path: str) -> list[dict]:
             if rec["date"].tzinfo is None:
                 rec["date"] = rec["date"].replace(tzinfo=timezone.utc)
             for k in _NUMERIC:
-                rec[k] = float(row[k])
+                rec[k] = float(row[k]) if row.get(k) not in (None, "") else 0.0
             out.append(rec)
     out.sort(key=lambda r: r["date"])
     return out
