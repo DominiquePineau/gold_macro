@@ -1,0 +1,54 @@
+//@version=6
+// ============================================================================
+//  Momentum XAU — Donchian / Turtle (trend-following, orienté DRAWDOWN)
+//  À appliquer sur XAU/USD en DAILY (D1). Long-only par défaut (or haussier).
+//  Entrée : cassure du plus-haut N jours (+ filtre tendance SMA optionnel).
+//  Sortie : cassure du plus-bas M jours.
+//  Backtest (cf. MOMENTUM_BACKTEST.md) : ne bat pas le buy & hold en rendement,
+//  mais DIVISE le drawdown (~−16% vs −27%) avec ~moitié d'exposition. Robuste OOS.
+//  Alertes -> webhook gold_macro.
+// ============================================================================
+strategy("Momentum XAU — Donchian/Turtle", overlay=true, initial_capital=10000,
+     default_qty_type=strategy.percent_of_equity, default_qty_value=100,
+     commission_type=strategy.commission.percent, commission_value=0.02,
+     slippage=1, pyramiding=0, calc_on_every_tick=false)
+
+entryLen = input.int(55, "Canal d'entrée (plus-haut N jours)", minval=5)
+exitLen  = input.int(20, "Canal de sortie (plus-bas N jours)", minval=3)
+useTrend = input.bool(true, "Filtre tendance (close > SMA)")
+trendLen = input.int(200, "SMA tendance", minval=20)
+longOnly = input.bool(true, "Long-only (recommandé sur l'or)")
+secret   = input.string("7iBcsUEkHI8mLqnnQ-AXuEQS", "Webhook secret")
+
+upper = ta.highest(high, entryLen)[1]
+lower = ta.lowest(low, exitLen)[1]
+sma   = ta.sma(close, trendLen)
+trendUp = (not useTrend) or close > sma
+
+longEntry = close > upper and trendUp
+longExit  = close < lower
+if longEntry and strategy.position_size == 0
+    strategy.entry("Long", strategy.long)
+if longExit and strategy.position_size > 0
+    strategy.close("Long")
+
+// Shorts optionnels (désactivés par défaut)
+lowerS = ta.lowest(low, entryLen)[1]
+upperS = ta.highest(high, exitLen)[1]
+shortEntry = (not longOnly) and close < lowerS and ((not useTrend) or close < sma)
+shortExit  = close > upperS
+if shortEntry and strategy.position_size == 0
+    strategy.entry("Short", strategy.short)
+if shortExit and strategy.position_size < 0
+    strategy.close("Short")
+
+plot(upper, "Entrée (plus-haut)", color=color.new(color.green, 30))
+plot(lower, "Sortie (plus-bas)",  color=color.new(color.red, 30))
+plot(useTrend ? sma : na, "SMA tendance", color=color.new(color.orange, 0))
+
+f_json(action) =>
+    '{"secret":"' + secret + '","symbol":"' + syminfo.ticker + '","action":"' + action + '","price":' + str.tostring(close) + ',"strategy":"Momentum_Donchian","message":"' + action + ' breakout tendance XAU"}'
+if longEntry and strategy.position_size == 0
+    alert(f_json("BUY"), alert.freq_once_per_bar_close)
+if shortEntry and strategy.position_size == 0
+    alert(f_json("SELL"), alert.freq_once_per_bar_close)
